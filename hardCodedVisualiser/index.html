@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bamberg Crowd Prediction Visualiser</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #f9fafb;
+    --surface:   #ffffff;
+    --surface2:  #f3f4f6;
+    --border:    #e5e7eb;
+    --text:      #111827;
+    --muted:     #6b7280;
+    --blue:      #378ADD;
+    --blue-bg:   #e6f1fb;
+    --green:     #1D9E75;
+    --green-bg:  #e1f5ee;
+    --radius:    10px;
+    --radius-lg: 14px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ── layout ── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  header h1 { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+  header span { font-size: 12px; color: var(--muted); }
+
+  .main { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+  /* ── paste section ── */
+  .paste-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .paste-card label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 8px;
+    color: var(--muted);
+  }
+  textarea {
+    width: 100%;
+    height: 110px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--surface2);
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  textarea:focus { border-color: var(--blue); }
+  .paste-actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+  .btn {
+    padding: 7px 16px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: transparent;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background 0.12s;
+  }
+  .btn:hover { background: var(--surface2); }
+  .btn-primary {
+    background: var(--blue-bg);
+    color: var(--blue);
+    border-color: #b5d4f4;
+  }
+  .btn-primary:hover { background: #d0e9f8; }
+  .btn-danger { color: #dc2626; border-color: #fca5a5; }
+  .btn-danger:hover { background: #fef2f2; }
+  .error { font-size: 12px; color: #dc2626; }
+
+  /* ── meta bar ── */
+  #meta-bar {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 1.25rem;
+  }
+  .meta-info { font-size: 13px; color: var(--muted); }
+  .meta-info strong { color: var(--text); }
+  .view-btns { display: flex; gap: 6px; }
+
+  /* ── zone tabs ── */
+  #zone-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 1.25rem;
+  }
+  .tab {
+    padding: 5px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    font-size: 12px;
+    cursor: pointer;
+    background: transparent;
+    color: var(--muted);
+    font-weight: 500;
+    transition: all 0.12s;
+  }
+  .tab:hover { background: var(--surface2); color: var(--text); }
+  .tab.active { background: var(--blue-bg); color: var(--blue); border-color: #b5d4f4; }
+
+  /* ── stat cards ── */
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 1.25rem;
+  }
+  @media (max-width: 640px) { .stat-row { grid-template-columns: repeat(2, 1fr); } }
+  .stat-card {
+    background: var(--surface2);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .stat-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .stat-val { font-size: 22px; font-weight: 600; color: var(--text); line-height: 1; }
+  .stat-sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  /* ── chart card ── */
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .chart-card h3 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .chart-wrap { position: relative; width: 100%; }
+
+  /* ── all-zones grid ── */
+  #all-view {
+    display: none;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+  }
+  .zone-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1rem;
+  }
+  .zone-block-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .zone-block-meta {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .mini-wrap { position: relative; width: 100%; height: 90px; }
+
+  /* ── compare view ── */
+  #compare-view { display: none; }
+  .compare-wrap { position: relative; width: 100%; }
+
+  /* ── legend ── */
+  .legend-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    display: inline-block;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+
+  /* ── empty state ── */
+  #empty {
+    background: var(--surface);
+    border: 2px dashed var(--border);
+    border-radius: var(--radius-lg);
+    padding: 4rem 2rem;
+    text-align: center;
+    color: var(--muted);
+  }
+  #empty h3 { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+  #empty p { font-size: 13px; }
+
+  /* ── summary table ── */
+  .summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-top: 0;
+  }
+  .summary-table th {
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--border);
+  }
+  .summary-table td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .summary-table tr:last-child td { border-bottom: none; }
+  .summary-table tr:hover td { background: var(--surface2); }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .source-note {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🏙 Bamberg Crowd Prediction Visualiser</h1>
+  <span id="header-date"></span>
+</header>
+
+<div class="main">
+
+  <!-- Paste section -->
+  <div class="paste-card">
+    <label>Paste JSON from <code>http://localhost:5001/debug</code></label>
+    <textarea id="jsonInput" placeholder='{"debug_date":"2026-04-02","zones":{...}}'></textarea>
+    <div class="paste-actions">
+      <button class="btn btn-primary" onclick="parseAndRender()">Visualise ↗</button>
+      <button class="btn" onclick="fetchFromFlask()">Fetch live from Flask</button>
+      <button class="btn btn-danger" onclick="clearAll()">Clear</button>
+      <span class="error" id="err"></span>
+    </div>
+  </div>
+
+  <!-- Empty state -->
+  <div id="empty">
+    <h3>No data yet</h3>
+    <p>Paste JSON from <code>/debug</code> above, or click "Fetch live from Flask" if Flask is running.</p>
+  </div>
+
+  <!-- Meta bar -->
+  <div id="meta-bar">
+    <div class="meta-info">
+      Date: <strong id="meta-date">—</strong>
+      &nbsp;·&nbsp; Zones: <strong id="meta-zones">—</strong>
+    </div>
+    <div class="view-btns">
+      <button class="btn btn-primary" id="btn-detail"  onclick="setView('detail')">Zone detail</button>
+      <button class="btn"             id="btn-all"     onclick="setView('all')">All zones</button>
+      <button class="btn"             id="btn-compare" onclick="setView('compare')">Compare</button>
+      <button class="btn"             id="btn-table"   onclick="setView('table')">Summary table</button>
+    </div>
+  </div>
+
+  <!-- Zone tabs (detail view) -->
+  <div id="zone-tabs"></div>
+
+  <!-- Stat cards -->
+  <div class="stat-row" id="stat-cards" style="display:none"></div>
+
+  <!-- Detail chart -->
+  <div class="chart-card" id="detail-card" style="display:none">
+    <h3 id="detail-title">Predicted crowd · 06:00 – 22:00</h3>
+    <div class="chart-wrap" style="height:300px"><canvas id="mainChart"></canvas></div>
+    <div class="legend-row" id="detail-legend"></div>
+  </div>
+
+  <!-- All zones grid -->
+  <div id="all-view"></div>
+
+  <!-- Compare chart -->
+  <div class="chart-card" id="compare-card" style="display:none">
+    <h3>All zones — side by side</h3>
+    <div class="compare-wrap" style="height:340px"><canvas id="compareChart"></canvas></div>
+    <div class="legend-row" id="compare-legend"></div>
+  </div>
+
+  <!-- Summary table -->
+  <div class="chart-card" id="table-card" style="display:none">
+    <h3>Summary — all zones</h3>
+    <table class="summary-table" id="summary-table"></table>
+  </div>
+
+  <p class="source-note">Data source: Flask /debug endpoint &nbsp;·&nbsp; Bamberg, Bavaria</p>
+</div>
+
+<script>
+/* ── state ── */
+let data = null;
+let mainChart    = null;
+let compareChart = null;
+let miniCharts   = {};
+let currentView  = 'detail';
+let currentZone  = null;
+
+const FLASK_URL = 'http://localhost:5001';
+
+/* ── zone colours ── */
+const COLORS = {
+  domkranz:           '#7F77DD',
+  gabelman:           '#1D9E75',
+  maxplatz:           '#378ADD',
+  mustrasse:          '#D85A30',
+  newRathawsOst:      '#BA7517',
+  newRathawsWest:     '#639922',
+  oldRathaws:         '#D4537E',
+  sandstrasse:        '#888780',
+  touristinformation: '#185FA5',
+};
+function color(zone) { return COLORS[zone] || '#378ADD'; }
+
+/* ── crowd level helpers ── */
+function crowdColor(pct) {
+  if (pct < 30) return '#D4EDDA';
+  if (pct < 55) return '#6DBF82';
+  if (pct < 75) return '#2E8B57';
+  return '#1A4731';
+}
+function crowdLabel(pct) {
+  if (pct < 30) return 'Quiet';
+  if (pct < 55) return 'Light';
+  if (pct < 75) return 'Busy';
+  return 'Crowded';
+}
+function crowdTextColor(pct) { return pct < 30 ? '#1A4731' : '#ffffff'; }
+
+/* ── set header date ── */
+document.getElementById('header-date').textContent =
+  new Date().toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' });
+
+/* ── fetch from Flask ── */
+async function fetchFromFlask() {
+  document.getElementById('err').textContent = 'Fetching…';
+  try {
+    const res  = await fetch(`${FLASK_URL}/debug`);
+    const json = await res.json();
+    document.getElementById('jsonInput').value = JSON.stringify(json, null, 2);
+    document.getElementById('err').textContent = '';
+    parseAndRender();
+  } catch(e) {
+    document.getElementById('err').textContent = 'Could not reach Flask on ' + FLASK_URL;
+  }
+}
+
+/* ── parse & render ── */
+function parseAndRender() {
+  const raw = document.getElementById('jsonInput').value.trim();
+  document.getElementById('err').textContent = '';
+  if (!raw) { document.getElementById('err').textContent = 'Nothing to parse.'; return; }
+  try {
+    data = JSON.parse(raw);
+    if (!data.zones) throw new Error('No zones key found');
+  } catch(e) {
+    document.getElementById('err').textContent = 'Invalid JSON: ' + e.message;
+    return;
+  }
+
+  document.getElementById('empty').style.display   = 'none';
+  document.getElementById('meta-bar').style.display = 'flex';
+  document.getElementById('meta-date').textContent  = data.debug_date || data.date || '—';
+  document.getElementById('meta-zones').textContent = Object.keys(data.zones).length;
+
+  buildTabs();
+  buildAllGrid();
+  buildCompareChart();
+  buildSummaryTable();
+  setView('detail');
+
+  const zones = Object.keys(data.zones);
+  if (zones.length > 0) selectZone(zones[0]);
+}
+
+/* ── tabs ── */
+function buildTabs() {
+  const tabs = document.getElementById('zone-tabs');
+  tabs.innerHTML = '';
+  Object.keys(data.zones).forEach((z, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'tab' + (i === 0 ? ' active' : '');
+    btn.textContent = z;
+    btn.onclick = () => selectZone(z);
+    tabs.appendChild(btn);
+  });
+}
+
+/* ── select zone ── */
+function selectZone(zone) {
+  currentZone = zone;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.textContent === zone));
+
+  const z    = data.zones[zone];
+  const slots = z.slots;
+  const avg  = Math.round(slots.reduce((s, x) => s + x.predicted_people, 0) / slots.length);
+  const min  = Math.min(...slots.map(s => s.predicted_people));
+  const minSlot = slots.find(s => s.predicted_people === min);
+
+  document.getElementById('stat-cards').style.display = 'grid';
+  document.getElementById('stat-cards').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">Peak</div>
+      <div class="stat-val">${z.peak}</div>
+      <div class="stat-sub">at ${z.peak_time}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Average</div>
+      <div class="stat-val">${avg}</div>
+      <div class="stat-sub">people all day</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Quietest</div>
+      <div class="stat-val">${min}</div>
+      <div class="stat-sub">at ${minSlot?.time ?? '—'}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Slots</div>
+      <div class="stat-val">${slots.length}</div>
+      <div class="stat-sub">× 15-min intervals</div>
+    </div>
+  `;
+
+  document.getElementById('detail-card').style.display = 'block';
+  document.getElementById('detail-title').textContent  = `${zone} — predicted crowd · 06:00 – 22:00`;
+
+  const labels = slots.map(s => s.time);
+  const vals   = slots.map(s => s.predicted_people);
+  const col    = color(zone);
+
+  if (mainChart) mainChart.destroy();
+  mainChart = new Chart(document.getElementById('mainChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: zone,
+        data:  vals,
+        backgroundColor: vals.map(v => {
+          const pct = Math.round((v / Math.max(...vals)) * 100);
+          return crowdColor(pct) + 'cc';
+        }),
+        borderColor: col,
+        borderWidth: 0,
+        borderRadius: 2,
+      }, {
+        label: 'Trend',
+        data:  vals,
+        type:  'line',
+        borderColor: col,
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.datasetIndex === 0
+              ? `  ${ctx.parsed.y} people`
+              : null,
+          },
+          filter: item => item.datasetIndex === 0,
+        }
+      },
+      scales: {
+        x: {
+          ticks: {
+            autoSkip: true,
+            maxTicksLimit: 10,
+            font: { size: 10 },
+            color: '#9ca3af',
+          },
+          grid: { display: false },
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { font: { size: 11 }, color: '#9ca3af' },
+          grid: { color: 'rgba(0,0,0,0.05)' },
+        }
+      }
+    }
+  });
+
+  document.getElementById('detail-legend').innerHTML = `
+    <span><span class="legend-dot" style="background:#D4EDDA"></span>Quiet</span>
+    <span><span class="legend-dot" style="background:#6DBF82"></span>Light</span>
+    <span><span class="legend-dot" style="background:#2E8B57"></span>Busy</span>
+    <span><span class="legend-dot" style="background:#1A4731"></span>Crowded</span>
+    <span style="margin-left:auto"><span class="legend-dot" style="background:${col}"></span>Trend line</span>
+  `;
+}
+
+/* ── all zones grid ── */
+function buildAllGrid() {
+  Object.values(miniCharts).forEach(c => c.destroy());
+  miniCharts = {};
+  const grid = document.getElementById('all-view');
+  grid.innerHTML = '';
+
+  Object.entries(data.zones).forEach(([zone, z]) => {
+    const col = color(zone);
+    const avg = Math.round(z.slots.reduce((s, x) => s + x.predicted_people, 0) / z.slots.length);
+    const id  = 'mini_' + zone;
+
+    const block = document.createElement('div');
+    block.className = 'zone-block';
+    block.innerHTML = `
+      <div class="zone-block-title">${zone}</div>
+      <div class="zone-block-meta">Peak <strong>${z.peak}</strong> @ ${z.peak_time} &nbsp;·&nbsp; Avg <strong>${avg}</strong></div>
+      <div class="mini-wrap"><canvas id="${id}"></canvas></div>
+    `;
+    grid.appendChild(block);
+
+    setTimeout(() => {
+      const vals = z.slots.map(s => s.predicted_people);
+      miniCharts[zone] = new Chart(document.getElementById(id), {
+        type: 'line',
+        data: {
+          labels: z.slots.map(s => s.time),
+          datasets: [{
+            data: vals,
+            borderColor: col,
+            backgroundColor: col + '22',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            borderWidth: 2,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: { x: { display: false }, y: { display: false, beginAtZero: true } }
+        }
+      });
+    }, 0);
+  });
+}
+
+/* ── compare chart ── */
+function buildCompareChart() {
+  if (compareChart) compareChart.destroy();
+
+  const zones    = Object.keys(data.zones);
+  const firstZ   = data.zones[zones[0]];
+  const labels   = firstZ.slots.map(s => s.time);
+
+  const datasets = zones.map(zone => ({
+    label:           zone,
+    data:            data.zones[zone].slots.map(s => s.predicted_people),
+    borderColor:     color(zone),
+    backgroundColor: 'transparent',
+    borderWidth:     2,
+    pointRadius:     0,
+    tension:         0.4,
+  }));
+
+  compareChart = new Chart(document.getElementById('compareChart'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          ticks: { autoSkip: true, maxTicksLimit: 10, font: { size: 10 }, color: '#9ca3af' },
+          grid: { display: false },
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { font: { size: 11 }, color: '#9ca3af' },
+          grid: { color: 'rgba(0,0,0,0.05)' },
+        }
+      }
+    }
+  });
+
+  const legend = document.getElementById('compare-legend');
+  legend.innerHTML = zones.map(z =>
+    `<span><span class="legend-dot" style="background:${color(z)}"></span>${z}</span>`
+  ).join('');
+}
+
+/* ── summary table ── */
+function buildSummaryTable() {
+  const zones = Object.keys(data.zones);
+  const rows  = zones.map(zone => {
+    const z   = data.zones[zone];
+    const avg = Math.round(z.slots.reduce((s, x) => s + x.predicted_people, 0) / z.slots.length);
+    const min = Math.min(...z.slots.map(s => s.predicted_people));
+    const pct = Math.round((z.peak / (Math.max(...zones.map(zz => data.zones[zz].peak)) || 1)) * 100);
+    return { zone, peak: z.peak, peak_time: z.peak_time, avg, min, pct };
+  }).sort((a, b) => b.peak - a.peak);
+
+  const table = document.getElementById('summary-table');
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Zone</th>
+        <th>Peak people</th>
+        <th>Peak time</th>
+        <th>Average</th>
+        <th>Quietest</th>
+        <th>Relative busyness</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.map(r => `
+        <tr>
+          <td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${color(r.zone)};margin-right:6px;vertical-align:middle"></span><strong>${r.zone}</strong></td>
+          <td><strong>${r.peak}</strong></td>
+          <td>${r.peak_time}</td>
+          <td>${r.avg}</td>
+          <td>${r.min}</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="flex:1;height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden">
+                <div style="height:100%;width:${r.pct}%;background:${crowdColor(r.pct)};border-radius:3px"></div>
+              </div>
+              <span style="font-size:11px;color:#6b7280;min-width:28px">${r.pct}%</span>
+            </div>
+          </td>
+        </tr>
+      `).join('')}
+    </tbody>
+  `;
+}
+
+/* ── set view ── */
+function setView(v) {
+  currentView = v;
+
+  document.getElementById('zone-tabs').style.display   = v === 'detail' ? 'flex' : 'none';
+  document.getElementById('stat-cards').style.display  = v === 'detail' ? 'grid' : 'none';
+  document.getElementById('detail-card').style.display = v === 'detail' ? 'block' : 'none';
+  document.getElementById('all-view').style.display    = v === 'all'    ? 'grid' : 'none';
+  document.getElementById('compare-card').style.display= v === 'compare'? 'block' : 'none';
+  document.getElementById('table-card').style.display  = v === 'table'  ? 'block' : 'none';
+
+  ['detail','all','compare','table'].forEach(id => {
+    const btn = document.getElementById('btn-' + id);
+    if (btn) btn.className = 'btn' + (id === v ? ' btn-primary' : '');
+  });
+}
+
+/* ── clear ── */
+function clearAll() {
+  data = null;
+  document.getElementById('jsonInput').value  = '';
+  document.getElementById('err').textContent  = '';
+  document.getElementById('empty').style.display    = 'block';
+  document.getElementById('meta-bar').style.display = 'none';
+  document.getElementById('zone-tabs').innerHTML    = '';
+  document.getElementById('stat-cards').style.display = 'none';
+  document.getElementById('detail-card').style.display = 'none';
+  document.getElementById('all-view').style.display    = 'none';
+  document.getElementById('compare-card').style.display = 'none';
+  document.getElementById('table-card').style.display   = 'none';
+  if (mainChart)    { mainChart.destroy();    mainChart    = null; }
+  if (compareChart) { compareChart.destroy(); compareChart = null; }
+  Object.values(miniCharts).forEach(c => c.destroy());
+  miniCharts = {};
+}
+</script>
+</body>
+</html>
